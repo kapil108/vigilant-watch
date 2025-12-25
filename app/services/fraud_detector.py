@@ -9,6 +9,44 @@ import numpy as np
 class FraudDetector:
     def __init__(self, db: Session):
         self.db = db
+        self.ml_model = None
+        self.label_encoder = None
+        
+        # Load ML Models if available
+        try:
+            import joblib
+            import os
+            model_path = "app/ml_models/isolation_forest.pkl"
+            encoder_path = "app/ml_models/label_encoder.pkl"
+            
+            if os.path.exists(model_path) and os.path.exists(encoder_path):
+                self.ml_model = joblib.load(model_path)
+                self.label_encoder = joblib.load(encoder_path)
+                print("🧠 AI Model loaded successfully.")
+            else:
+                print("⚠️ AI Model not found. Running in Rule-Only mode.")
+        except Exception as e:
+            print(f"⚠️ Failed to load AI Model: {e}")
+
+    def check_ml_anomalies(self, amount: float, category: str) -> bool:
+        """Returns True if the transaction is an anomaly according to Isolation Forest."""
+        if not self.ml_model or not self.label_encoder:
+            return False
+            
+        try:
+            # Safe encoding (handle unknown categories)
+            if category in self.label_encoder.classes_:
+                cat_code = self.label_encoder.transform([category])[0]
+            else:
+                # Basic fallback: encode as -1 or 0 (unknown)
+                cat_code = 0 
+                
+            prediction = self.ml_model.predict([[amount, cat_code]])
+            # Isolation Forest returns -1 for anomaly, 1 for normal
+            return prediction[0] == -1
+        except Exception as e:
+            print(f"Error in ML prediction: {e}")
+            return False
 
     def calculate_risk_score(self, transaction: TransactionCreate, triggered_rules: list[str]) -> int:
         score = 0
@@ -18,8 +56,11 @@ class FraudDetector:
             score = max(score, 95)
         if "Rapid Transactions" in triggered_rules:
             score = max(score, 80)
-        if "ML Anomaly (Isolation Forest)" in triggered_rules:
-            score = max(score, 95)
+        
+        # ML Score handling
+        # If ML detected it, ensure high score
+        if any("ML Anomaly" in r for r in triggered_rules):
+             score = max(score, 88) # AI says it's weird
 
         # 2. Statistical Scoring (Z-Score)
         # Fetch history for this user
@@ -63,9 +104,9 @@ class FraudDetector:
         if recent_count >= 3:
             triggered_rules.append("Rapid Transactions")
 
-        # Rule 3: Isolation Forest (ML Anomaly)
-        # Simplified for now to avoid dependency issues if sklearn missing
-        # We rely on Z-Score in calculate_risk_score for the "Smart" part
+        # Rule 3: Isolation Forest (Real AI)
+        if self.check_ml_anomalies(transaction.amount, transaction.merchant_category):
+            triggered_rules.append("ML Anomaly (Isolation Forest)")
         
         return triggered_rules
 
