@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vigilant_backend
+    ports:
+      - "8000:8000"
+    restart: always
+    environment:
+      - DATABASE_URL=sqlite:///./fraud_detection.db
+      - PYTHONPATH=/app
+    volumes:
+      - ./fraud_detection.db:/app/fraud_detection.db
+      - ./app:/app/app
+
+  frontend:
+    build:
+      context: ./vigilant-watch-main
+      dockerfile: Dockerfile
+    container_name: vigilant_frontend
+    ports:
+      - "80:80"
+    restart: always
+    depends_on:
+      - backend
